@@ -1,12 +1,13 @@
 # Medthai Scraper
 
-Web scraper for extracting disease content from [Medthai.com](https://medthai.com/).
+Web scraper for extracting content from [Medthai.com](https://medthai.com/).
 
 ## Features
 
-- Scrapes all disease articles from the Medthai disease directory
+- Scrapes multiple categories: diseases, drugs, herbs, vegetables, fruits
 - Extracts full text content (no images)
-- Organizes content by sections (symptoms, causes, treatment, etc.)
+- Organizes content by sections
+- Configurable via `config.ini`
 - Saves output as clean JSON
 
 ## Project Structure
@@ -16,10 +17,11 @@ scap_med/
 ├── src/                    # Source code
 │   └── scrape_medthai.py   # Main scraper script
 ├── output/                 # Scraped data output
-│   └── medthai_content.json
+│   └── *.json
 ├── scripts/                # Utility scripts
 ├── tests/                  # Test files
 ├── med-scap-env/           # Python virtual environment
+├── config.ini              # Configuration file
 ├── requirements.txt        # Python dependencies
 └── README.md              # This file
 ```
@@ -36,14 +38,47 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Scrape all diseases
+### 1. Configure categories to scrape
+
+Edit `config.ini` and enable the categories you want:
+
+```ini
+[diseases]
+enabled = true   # Change to true to scrape diseases
+
+[drugs]
+enabled = true   # Change to true to scrape drugs/medicines
+
+[herbs]
+enabled = true   # Change to true to scrape herbs
+
+[vegetables]
+enabled = true   # Change to true to scrape vegetables
+
+[fruits]
+enabled = true   # Change to true to scrape fruits
+```
+
+### 2. Run the scraper
+
 ```bash
 source med-scap-env/bin/activate
 python src/scrape_medthai.py
 ```
 
-### Output
-The scraper saves data to `output/medthai_content.json`
+Or use the run script:
+```bash
+./scripts/run.sh
+```
+
+### 3. Output files
+
+Each category saves to a separate file in `output/`:
+- `diseases.json`
+- `drugs.json`
+- `herbs.json`
+- `vegetables.json`
+- `fruits.json`
 
 ## Output Format
 
@@ -57,18 +92,12 @@ The scraper saves data to `output/medthai_content.json`
     "sections": [
       {
         "heading": "บทนำ",
-        "content": ["definition text...", "epidemiology text..."]
+        "content": ["text...", "text..."]
       },
       {
-        "heading": "สาเหตุของโรคกรดไหลย้อน",
+        "heading": "สาเหตุ",
         "content": [
-          {"list": ["cause 1", "cause 2", ...]}
-        ]
-      },
-      {
-        "heading": "อาการของโรคกรดไหลย้อน",
-        "content": [
-          {"list": ["symptom 1", "symptom 2", ...]}
+          {"list": ["item 1", "item 2"]}
         ]
       }
     ],
@@ -78,15 +107,19 @@ The scraper saves data to `output/medthai_content.json`
 ]
 ```
 
-## Configuration
+## Configuration Options
 
-Edit `src/scrape_medthai.py` to customize:
-
-- `delay`: Request delay in seconds (default: 2.0)
-- `max_diseases`: Limit number of articles to scrape
+| Option | Description | Default |
+|--------|-------------|---------|
+| `delay` | Seconds between requests | 2.0 |
+| `output_dir` | Output directory | output |
+| `enabled` | Enable/disable category | false |
+| `url` | Category index URL | - |
+| `output_file` | Output JSON filename | - |
 
 ## Notes
 
-- Scraping all ~195 articles takes approximately 7 minutes
-- The scraper respects the server with a 2-second delay between requests
-- Content is in Thai language
+- Each category takes ~5-10 minutes to scrape completely
+- The scraper respects the server with configurable delay
+- All content is in Thai language
+- Press `Ctrl+C` to stop anytime (data saved progressively)

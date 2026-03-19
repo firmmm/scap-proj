@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Medthai.com Disease Content Scraper
-Scrapes full article content from disease pages (text only, no images).
+Medthai.com Multi-Category Content Scraper
+Scrapes content from multiple Medthai categories (diseases, drugs, herbs, etc.)
 """
 
 import requests
@@ -9,15 +9,14 @@ from bs4 import BeautifulSoup
 import json
 import time
 import re
+import os
+import configparser
 from typing import Dict, List, Optional
 from urllib.parse import urljoin
 
 
 class MedthaiScraper:
-    """Scraper for Medthai.com disease articles."""
-
-    BASE_URL = "https://medthai.com"
-    DISEASE_INDEX_URL = "https://medthai.com/%e0%b8%a3%e0%b8%b2%e0%b8%a2%e0%b8%8a%e0%b8%b7%e0%b9%88%e0%b8%ad%e0%b9%82%e0%b8%a3%e0%b8%84/"
+    """Scraper for Medthai.com content."""
 
     HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -47,9 +46,9 @@ class MedthaiScraper:
             print(f"Error fetching {url}: {e}")
             return None
 
-    def scrape_disease_urls_from_index(self) -> List[str]:
-        """Scrape all disease URLs from the main disease index page."""
-        soup = self.fetch_page(self.DISEASE_INDEX_URL)
+    def scrape_urls_from_index(self, index_url: str) -> List[str]:
+        """Scrape all URLs from an index page."""
+        soup = self.fetch_page(index_url)
         if not soup:
             return []
 
@@ -76,11 +75,11 @@ class MedthaiScraper:
                     if self.BASE_URL in full_url and '#' not in full_url:
                         urls.add(full_url)
 
-        print(f"Found {len(urls)} disease URLs")
+        print(f"Found {len(urls)} URLs")
         return list(urls)
 
-    def scrape_disease_article(self, url: str) -> Optional[Dict]:
-        """Scrape full content from a disease article page (text only)."""
+    def scrape_article(self, url: str) -> Optional[Dict]:
+        """Scrape full content from an article page (text only)."""
         soup = self.fetch_page(url)
         if not soup:
             return None
@@ -105,10 +104,9 @@ class MedthaiScraper:
             if content_div:
                 return content_div
 
-        # Fallback: find largest content div with disease-related text
         for div in soup.find_all('div'):
             text = div.get_text()
-            if len(text) > 1000 and 'โรค' in text:
+            if len(text) > 1000 and ('โรค' in text or 'ยา' in text or 'สมุนไพร' in text):
                 return div
 
         return soup
@@ -146,11 +144,6 @@ class MedthaiScraper:
             elem = soup.find(**pattern)
             if elem:
                 return elem.get_text(strip=True)
-
-        for elem in soup.find_all(['span', 'div']):
-            text = elem.get_text(strip=True)
-            if re.search(r'\d{1,2}\s+\w+\s+2\d{3}', text):
-                return text
 
         return None
 
@@ -260,25 +253,33 @@ class MedthaiScraper:
 
         return related
 
-    def scrape_all_diseases(self, max_diseases: Optional[int] = None) -> List[Dict]:
+    def scrape_category(self, name: str, index_url: str, max_items: Optional[int] = None) -> List[Dict]:
         """
-        Scrape all disease articles.
+        Scrape all articles from a category.
 
         Args:
-            max_diseases: Maximum number of diseases to scrape (None for all)
+            name: Category name
+            index_url: Index page URL
+            max_items: Maximum number of articles to scrape (None for all)
 
         Returns:
             List of article dictionaries
         """
-        urls = self.scrape_disease_urls_from_index()
+        print(f"\n{'=' * 60}")
+        print(f"Scraping category: {name}")
+        print(f"Index URL: {index_url}")
+        print('=' * 60)
 
-        if max_diseases:
-            urls = urls[:max_diseases]
+        self.BASE_URL = "https://medthai.com"
+        urls = self.scrape_urls_from_index(index_url)
+
+        if max_items:
+            urls = urls[:max_items]
 
         all_articles = []
         for i, url in enumerate(urls, 1):
             print(f"\n[{i}/{len(urls)}] Scraping...")
-            article = self.scrape_disease_article(url)
+            article = self.scrape_article(url)
             if article:
                 all_articles.append(article)
                 print(f"  ✓ Scraped: {article['title'][:50]}...")
@@ -287,16 +288,12 @@ class MedthaiScraper:
 
         return all_articles
 
-    def save_to_json(self, data: List[Dict], output_dir: str = "output"):
+    def save_to_json(self, data: List[Dict], filepath: str):
         """Save scraped data to JSON file."""
-        import os
-        os.makedirs(output_dir, exist_ok=True)
-
-        filepath = os.path.join(output_dir, "medthai_content.json")
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         print(f"\nData saved to {filepath}")
-        return filepath
 
     def get_summary(self, articles: List[Dict]) -> Dict:
         """Get summary statistics of scraped data."""
@@ -310,44 +307,72 @@ class MedthaiScraper:
         }
 
 
+def load_config(config_path: str = "config.ini") -> dict:
+    """Load configuration from config.ini file."""
+    config = configparser.ConfigParser(interpolation=None)
+    config.read(config_path, encoding='utf-8')
+
+    categories = {}
+    for section in config.sections():
+        if section == 'scraper':
+            continue
+        if config.getboolean(section, 'enabled', fallback=False):
+            categories[section] = {
+                'url': config.get(section, 'url'),
+                'output_file': config.get(section, 'output_file'),
+            }
+
+    scraper_config = {
+        'delay': config.getfloat('scraper', 'delay', fallback=2.0),
+        'output_dir': config.get('scraper', 'output_dir', fallback='output'),
+    }
+
+    return {'categories': categories, 'scraper': scraper_config}
+
+
 def main():
     """Main function to run the scraper."""
     print("=" * 60)
-    print("Medthai.com Disease Content Scraper")
+    print("Medthai.com Multi-Category Content Scraper")
     print("=" * 60)
 
-    scraper = MedthaiScraper(delay=2.0)
+    # Load configuration
+    config = load_config()
+    categories = config['categories']
+    scraper_config = config['scraper']
 
-    print("\nScraping ALL disease articles...")
-    print("Note: This will take several minutes. Press Ctrl+C to stop anytime.\n")
+    if not categories:
+        print("\nNo categories enabled in config.ini")
+        print("Edit config.ini and set enabled = true for categories you want to scrape")
+        return
 
-    articles = scraper.scrape_all_diseases(max_diseases=None)
+    print(f"\nEnabled categories: {', '.join(categories.keys())}")
+    print(f"Delay: {scraper_config['delay']}s")
+    print(f"Output directory: {scraper_config['output_dir']}")
 
-    if articles:
-        print("\n" + "=" * 60)
-        print("Scraping Complete!")
-        print("=" * 60)
+    scraper = MedthaiScraper(delay=scraper_config['delay'])
+    output_dir = scraper_config['output_dir']
 
-        summary = scraper.get_summary(articles)
-        print(f"\nTotal Articles: {summary['total_articles']}")
-        print(f"Total Sections: {summary['total_sections']}")
-        print(f"Total References: {summary['total_references']}")
+    for cat_name, cat_config in categories.items():
+        articles = scraper.scrape_category(
+            name=cat_name,
+            index_url=cat_config['url'],
+            max_items=None  # Set to a number to limit articles
+        )
 
-        scraper.save_to_json(articles)
+        if articles:
+            summary = scraper.get_summary(articles)
+            print(f"\n{'=' * 60}")
+            print(f"Category: {cat_name}")
+            print(f"Total Articles: {summary['total_articles']}")
+            print(f"Total Sections: {summary['total_sections']}")
 
-        print("\n" + "=" * 60)
-        print("Sample Articles:")
-        print("=" * 60)
-        for i, article in enumerate(articles[:5], 1):
-            print(f"\n{i}. {article['title']}")
-            print(f"   URL: {article['url']}")
-            print(f"   Author: {article.get('author', 'N/A')}")
-            print(f"   Sections: {len(article.get('sections', []))}")
+            output_file = os.path.join(output_dir, cat_config['output_file'])
+            scraper.save_to_json(articles, output_file)
 
-        if len(articles) > 5:
-            print(f"\n... and {len(articles) - 5} more articles")
-    else:
-        print("No articles scraped")
+    print("\n" + "=" * 60)
+    print("All scraping complete!")
+    print("=" * 60)
 
 
 if __name__ == "__main__":
